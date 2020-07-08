@@ -24,8 +24,11 @@ from __future__ import print_function
 
 import os
 import re
+from serial import Serial
 import sys
 import time
+
+from abc import ABCMeta, abstractmethod
 
 usb_reset_needed = False  # https://github.com/fablabnbg/inkscape-silhouette/issues/10
 
@@ -221,6 +224,218 @@ def _inch_2_SU(inch):
   return int(round(inch * 508.0))
 
 
+class AbstractConnection():
+  # this is how it is done in python2.7, when the switch to python3 is done we can instead directly
+  # inherit from ABC
+  __metaclass__ = ABCMeta
+
+  def __init__(self):
+    super(AbstractConnection, self).__init__()
+    self.hardware = None
+
+  @abstractmethod
+  def write(self, data, timeout):
+    pass
+
+  @abstractmethod
+  def read(self, size, timeout):
+    pass
+
+
+class USBConnection(AbstractConnection):
+  def __init__(self, read_endpoint=0x82, write_endpoint=0x01, interface=None, log=sys.stderr):
+    super(USBConnection, self).__init__()
+    self.read_endpoint = read_endpoint
+    self.write_endpoint = write_endpoint
+    self.interface = interface
+
+    dev = None
+    # search for known devices (i.e. one that is listed in DEVICE)
+    for hardware in DEVICE:
+      if sys_platform.startswith('win'):
+        print("device lookup under windows not tested. Help adding code!", file=log)
+        dev = usb.core.find(idVendor=hardware['vendor_id'], idProduct=hardware['product_id'])
+      elif sys_platform.startswith('darwin'):
+        dev = usb1ctx.openByVendorIDAndProductID(hardware['vendor_id'], hardware['product_id'])
+      else:   # linux
+        dev = usb.core.find(idVendor=hardware['vendor_id'], idProduct=hardware['product_id'])
+      if dev:
+        self.hardware = hardware
+        break
+
+    if dev is None:
+      if sys_platform.startswith('win'):
+        print("device fallback under windows not tested. Help adding code!", file=log)
+        dev = usb.core.find(idVendor=VENDOR_ID_GRAPHTEC)
+        self.hardware = { 'name': 'Unknown Graphtec device' }
+        if dev:
+          self.hardware['name'] += " 0x%04x" % dev.idProduct
+          self.hardware['product_id'] = dev.idProduct
+          self.hardware['vendor_id'] = dev.idVendor
+
+
+      elif sys_platform.startswith('darwin'):
+        print("device fallback under macosx not implemented. Help adding code!", file=log)
+
+      else:   # linux
+        dev = usb.core.find(idVendor=VENDOR_ID_GRAPHTEC)
+        self.hardware = { 'name': 'Unknown Graphtec device ' }
+        if dev:
+          self.hardware['name'] += " 0x%04x" % dev.idProduct
+          self.hardware['product_id'] = dev.idProduct
+          self.hardware['vendor_id'] = dev.idVendor
+
+    if dev is None:
+      msg = ''
+      try:
+          for dev in usb.core.find(find_all=True):
+            msg += "(%04x,%04x) " % (dev.idVendor, dev.idProduct)
+      except NameError:
+          msg += "unable to list devices on OS X"
+      raise ValueError('No Graphtec Silhouette USB devices found.\nCheck USB and Power.\nDevices: '
+                       + msg)
+
+    try:
+      dev_bus = dev.bus
+    except:
+      dev_bus = -1
+
+    try:
+      dev_addr = dev.address
+    except:
+      dev_addr = -1
+
+    print("%s found on usb bus=%d addr=%d" % (self.hardware['name'], dev_bus, dev_addr), file=log)
+
+    if sys_platform.startswith('win'):
+      print("device init under windows not implemented. Help adding code!", file=log)
+
+    elif sys_platform.startswith('darwin'):
+      dev.claimInterface(0)
+      # usb_enpoint = 1
+      # dev.bulkWrite(usb_endpoint, data)
+
+    else:     # linux
+      try:
+        if dev.is_kernel_driver_active(0):
+          print("is_kernel_driver_active(0) returned nonzero", file=log)
+          if dev.detach_kernel_driver(0):
+            print("detach_kernel_driver(0) returned nonzero", file=log)
+      except usb.core.USBError as e:
+        print("usb.core.USBError:", e, file=log)
+        if e.errno == 13:
+          msg = """
+If you are not running as root, this might be a udev issue.
+Try a file /etc/udev/rules.d/99-graphtec-silhouette.rules
+with the following example syntax:
+SUBSYSTEM=="usb", ATTR{idVendor}=="%04x", ATTR{idProduct}=="%04x", MODE="666"
+
+Then run 'sudo udevadm trigger' to load this file.
+
+Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.hardware['vendor_id'], self.hardware['product_id'])
+          print(msg, file=log)
+          print(msg, file=sys.stderr)
+        sys.exit(0)
+
+      if usb_reset_needed:
+        for i in range(5):
+          try:
+            dev.reset()
+            break
+          except usb.core.USBError as e:
+            print("reset failed: ", e, file=log)
+            print("retrying reset in 5 sec", file=log)
+            time.sleep(5)
+
+      dev.set_configuration()
+      try:
+        dev.set_interface_altsetting()      # Probably not really necessary.
+      except usb.core.USBError:
+        pass
+
+    self.dev = dev
+
+  def write(self, data, timeout=10000):
+    r = 0
+    if self.interface is None:
+      try:
+        r = self.dev.write(self.write_endpoint, data, timeout=timeout)
+      except AttributeError:
+        r = self.dev.bulkWrite(self.write_endpoint, data, timeout=timeout)
+    else:
+      try:
+        r = self.dev.write(self.write_endpoint, data, interface=self.interface, timeout=timeout)
+      except AttributeError:
+        r = self.dev.bulkWrite(self.write_endpoint, data, interface=self.interface, timeout=timeout)
+    return r
+
+  def read(self, size=64, timeout=5000):
+    if self.interface is None:
+      try:
+          data = self.dev.read(self.read_endpoint, size, timeout=timeout)
+      except AttributeError:
+          data = self.dev.bulkRead(self.read_endpoint, size, timeout=timeout)
+    else:
+        try:
+            data = self.dev.read(self.read_endpoint, size, timeout=timeout, interface=self.interface)
+        except AttributeError:
+            data = self.dev.bulkRead(self.read_endpoint, size, timeout=timeout, interface=self.interface)
+    return data
+
+
+class BTConnection(AbstractConnection):
+  def __init__(self, log=sys.stderr):
+    super(BTConnection, self).__init__()
+
+    # figure out file name of the rfcomm
+    rfcommFile = None
+    if sys_platform.startswith('win'):
+      print("Bluetooth device lookup under windows not yet implemented. Help adding code!", file=log)
+    elif sys_platform.startswith('darwin'):
+      print("Searching for bt devices on OSX", file=log)
+      # on osx a rfcomm port is created and linked automatically when the cameo is connected
+      # TODO add support for other machines. I would expect files like CAMEO3-... and PORTRAIT2-...
+      pat = re.compile("tty\.(CAMEO4)-.*")
+      # get first matching port
+      rfcomms = [f for f in os.listdir("/dev/") if pat.match(f)]
+      rfcomm = rfcomms[0] if rfcomms else None
+
+      if rfcomm is not None:
+        # figure out hardware
+        devName = pat.match(rfcomm).group(1)
+        if (devName == "CAMEO4"):
+          self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Cameo4")
+        rfcommFile = os.path.join(os.sep, "dev", rfcomms[0])
+        print("Found device at port %s" % rfcommFile, file=log)
+    else:   # linux
+      print("Bluetooth device lookup under linux not yet implemented. Help adding code!", file=log)
+
+    if rfcommFile is None:
+     raise ValueError('No Graphtec Silhouette bluetooth devices found.\nCheck Bluetooth and Power.')
+
+    # open serial connection
+    print("Opening serial port:", file=log)
+    self.dev = Serial(rfcommFile)
+    print("Opening serial port: Done", file=log)
+
+
+  def write(self, data, timeout=10000):
+    r = 0
+    # serial uses seconds as timeout
+    self.dev.write_timeout = timeout / 1000.
+    r = self.dev.write(data)
+    return r
+
+  def read(self, size=64, timeout=5000):
+    # serial uses seconds as timeout
+    self.dev.timeout = timeout / 1000.
+    # pyusb seems to stop reading when it encounters 0x03, so we do the same when reading from
+    # the serial port
+    data = self.dev.read_until(b"\x03", size)
+
+    return data
+
+
 class SilhouetteCameoTool:
   def __init__(self, toolholder=1):
     if toolholder is None:
@@ -277,119 +492,26 @@ class SilhouetteCameo:
     self.leftaligned = False            # True: only works for DEVICE with known hardware.width_mm
     self.log = log
     self.progress_cb = progress_cb
-    dev = None
     self.margins_printed = None
 
     if no_device is True:
+      self.con = None
       self.hardware = { 'name': 'Crashtest Dummy Device' }
     else:
-      for hardware in DEVICE:
-        if sys_platform.startswith('win'):
-          print("device lookup under windows not tested. Help adding code!", file=self.log)
-          dev = usb.core.find(idVendor=hardware['vendor_id'], idProduct=hardware['product_id'])
-
-        elif sys_platform.startswith('darwin'):
-          dev = usb1ctx.openByVendorIDAndProductID(hardware['vendor_id'], hardware['product_id'])
-
-        else:   # linux
-          dev = usb.core.find(idVendor=hardware['vendor_id'], idProduct=hardware['product_id'])
-        if dev:
-          self.hardware = hardware
-          break
-
-      if dev is None:
-        if sys_platform.startswith('win'):
-          print("device fallback under windows not tested. Help adding code!", file=self.log)
-          dev = usb.core.find(idVendor=VENDOR_ID_GRAPHTEC)
-          self.hardware = { 'name': 'Unknown Graphtec device' }
-          if dev:
-            self.hardware['name'] += " 0x%04x" % dev.idProduct
-            self.hardware['product_id'] = dev.idProduct
-            self.hardware['vendor_id'] = dev.idVendor
-
-
-        elif sys_platform.startswith('darwin'):
-          print("device fallback under macosx not implemented. Help adding code!", file=self.log)
-
-        else:   # linux
-          dev = usb.core.find(idVendor=VENDOR_ID_GRAPHTEC)
-          self.hardware = { 'name': 'Unknown Graphtec device ' }
-          if dev:
-            self.hardware['name'] += " 0x%04x" % dev.idProduct
-            self.hardware['product_id'] = dev.idProduct
-            self.hardware['vendor_id'] = dev.idVendor
-
-      if dev is None:
-        msg = ''
-        try:
-            for dev in usb.core.find(find_all=True):
-              msg += "(%04x,%04x) " % (dev.idVendor, dev.idProduct)
-        except NameError:
-            msg += "unable to list devices on OS X"
-        raise ValueError('No Graphtec Silhouette devices found.\nCheck USB and Power.\nDevices: '+msg)
-
       try:
-        dev_bus = dev.bus
+        self.con = USBConnection(log=self.log)
       except:
-        dev_bus = -1
-
-      try:
-        dev_addr = dev.address
-      except:
-        dev_addr = -1
-
-      print("%s found on usb bus=%d addr=%d" % (self.hardware['name'], dev_bus, dev_addr), file=self.log)
-
-      if sys_platform.startswith('win'):
-        print("device init under windows not implemented. Help adding code!", file=self.log)
-
-      elif sys_platform.startswith('darwin'):
-        dev.claimInterface(0)
-        # usb_enpoint = 1
-        # dev.bulkWrite(usb_endpoint, data)
-
-      else:     # linux
         try:
-          if dev.is_kernel_driver_active(0):
-            print("is_kernel_driver_active(0) returned nonzero", file=self.log)
-            if dev.detach_kernel_driver(0):
-              print("detach_kernel_driver(0) returned nonzero", file=self.log)
-        except usb.core.USBError as e:
-          print("usb.core.USBError:", e, file=self.log)
-          if e.errno == 13:
-            msg = """
-If you are not running as root, this might be a udev issue.
-Try a file /etc/udev/rules.d/99-graphtec-silhouette.rules
-with the following example syntax:
-SUBSYSTEM=="usb", ATTR{idVendor}=="%04x", ATTR{idProduct}=="%04x", MODE="666"
+          self.con = BTConnection(log=self.log)
+        except:
+          raise ValueError('No Graphtec Silhouette USB or Bluetooth devices found.\n'
+                           'Check USB/Bluethooth connection and Power.')
 
-Then run 'sudo udevadm trigger' to load this file.
+      self.hardware = self.con.hardware
 
-Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.hardware['vendor_id'], self.hardware['product_id'])
-            print(msg, file=self.log)
-            print(msg, file=sys.stderr)
-          sys.exit(0)
-
-        if usb_reset_needed:
-          for i in range(5):
-            try:
-              dev.reset()
-              break
-            except usb.core.USBError as e:
-              print("reset failed: ", e, file=self.log)
-              print("retrying reset in 5 sec", file=self.log)
-              time.sleep(5)
-
-        dev.set_configuration()
-        try:
-          dev.set_interface_altsetting()      # Probably not really necessary.
-        except usb.core.USBError:
-          pass
-
-    self.dev = dev
     self.need_interface = False         # probably never needed, but harmful on some versions of usb.core
     self.regmark = False                # not yet implemented. See robocut/Plotter.cpp:446
-    if self.dev is None or 'width_mm' in self.hardware:
+    if self.con is None or 'width_mm' in self.hardware:
       self.leftaligned = True
     self.enable_sw_clipping = True
 
@@ -400,7 +522,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
     """Send a command to the device. Long commands are sent in chunks of 4096 bytes.
        A nonblocking read() is attempted before write(), to find spurious diagnostics."""
 
-    if self.dev is None: return None
+    if self.con is None: return None
 
     # convert string to bytes if required
     if isinstance(data, str):
@@ -408,42 +530,32 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
 
     # robocut/Plotter.cpp:73 says: Send in 4096 byte chunks. Not sure where I got this from, I'm not sure it is actually necessary.
     try:
-      resp = self.read(timeout=10) # poll the inbound buffer
+      resp = self.read(timeout=10)  # poll the inbound buffer
       if resp:
         print("response before write('%s'): '%s'" % (data, resp), file=self.log)
     except:
       pass
-    endpoint = 0x01
     chunksz = 4096
     r = 0
     o = 0
-    msg=''
+    msg = ''
     retry = 0
     while o < len(data):
       if o:
         if self.progress_cb:
-          self.progress_cb(o,len(data),msg)
+          self.progress_cb(o, len(data), msg)
         elif self.log:
-          self.log.write(" %d%% %s\r" % (100.*o/len(data),msg))
+          self.log.write(" %d%% %s\r" % (100.*o/len(data), msg))
           self.log.flush()
       chunk = data[o:o+chunksz]
       try:
-        if self.need_interface:
-          try:
-            r = self.dev.write(endpoint, chunk, interface=0, timeout=timeout)
-          except AttributeError:
-            r = self.dev.bulkWrite(endpoint, chunk, interface=0, timeout=timeout)
-        else:
-          try:
-            r = self.dev.write(endpoint, chunk, timeout=timeout)
-          except AttributeError:
-            r = self.dev.bulkWrite(endpoint, chunk, timeout=timeout)
+        r = self.con.write(chunk, timeout)
       except TypeError as te:
         # write() got an unexpected keyword argument 'interface'
-        raise TypeError("Write Exception: %s, %s dev=%s" % (type(te), te, type(self.dev)))
+        raise TypeError("Write Exception: %s, %s dev=%s" % (type(te), te, type(self.con)))
       except AttributeError as ae:
         # write() got an unexpected keyword argument 'interface'
-        raise TypeError("Write Exception: %s, %s dev=%s" % (type(ae), ae, type(self.dev)))
+        raise TypeError("Write Exception: %s, %s dev=%s" % (type(ae), ae, type(self.con)))
 
       except Exception as e:
         # raise USBError(_str_error[ret], ret, _libusb_errno[ret])
@@ -478,7 +590,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
 
   def safe_write(self, data):
     """wrapper for write with special emphasis on not to over-load the cutter with long commands."""
-    if self.dev is None: return None
+    if self.con is None: return None
 
     # convert string to bytes if required
     if isinstance(data, str):
@@ -528,18 +640,8 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
 
   def read(self, size=64, timeout=5000):
     """Low level read method"""
-    if self.dev is None: return None
-    endpoint = 0x82
-    if self.need_interface:
-        try:
-            data = self.dev.read(endpoint, size, timeout=timeout, interface=0)
-        except AttributeError:
-            data = self.dev.bulkRead(endpoint, size, timeout=timeout, interface=0)
-    else:
-        try:
-            data = self.dev.read(endpoint, size, timeout=timeout)
-        except AttributeError:
-            data = self.dev.bulkRead(endpoint, size, timeout=timeout)
+    if self.con is None: return None
+    data = self.con.read(size, timeout)
     if data is None:
       raise ValueError('read failed: none')
     if isinstance(data, (str, bytes)):
@@ -572,7 +674,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
     """Query the device status. This can return one of the three strings
        'ready', 'moving', 'unloaded' or a raw (unknown) byte sequence."""
 
-    if self.dev is None: return 'none'
+    if self.con is None: return 'none'
 
     # Status request.
     self.send_escape(CMD_ENQ)
@@ -590,7 +692,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
 
   def get_tool_setup(self):
     """ gets the type of the tools installed in Cameo 4 """
-    if self.dev is None:
+    if self.con is None:
       return 'none'
 
     if self.product_id() != PRODUCT_ID_SILHOUETTE_CAMEO4:
@@ -689,7 +791,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
   def get_version(self):
     """Retrieve the firmware version string from the device."""
 
-    if self.dev is None: return None
+    if self.con is None: return None
 
     return self.send_receive_command("FG", rx_timeout = 10000)
 
@@ -779,7 +881,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
     if leftaligned is not None:
       self.leftaligned = leftaligned
 
-    if self.dev is None: return None
+    if self.con is None: return None
 
     self.initialize()
 

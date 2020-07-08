@@ -1112,7 +1112,7 @@ class SendtoSilhouette(inkex.Effect):
 
       cut.append(multipath)
 
-    if dev.dev is None:
+    if dev.con is None:
       docname=None
       svg = self.document.getroot()
       # Namespace horrors: Id's expand to full urls, before we can search them.
