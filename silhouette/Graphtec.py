@@ -395,7 +395,7 @@ class BTConnection(AbstractConnection):
       print("Searching for bt devices on OSX", file=log)
       # on osx a rfcomm port is created and linked automatically when the cameo is connected
       # TODO add support for other machines. I would expect files like CAMEO3-... and PORTRAIT2-...
-      pat = re.compile("tty\.(CAMEO4)-.*")
+      pat = re.compile("tty\.(PORTRAIT2|CAMEO3|CAMEO4)-.*")
       # get first matching port
       rfcomms = [f for f in os.listdir("/dev/") if pat.match(f)]
       rfcomm = rfcomms[0] if rfcomms else None
@@ -403,12 +403,33 @@ class BTConnection(AbstractConnection):
       if rfcomm is not None:
         # figure out hardware
         devName = pat.match(rfcomm).group(1)
-        if (devName == "CAMEO4"):
+        if (devName == "PORTRAIT2"):
+          self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Portrait2")
+        elif (devName == "CAMEO3"):
+          self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Cameo3")
+        elif (devName == "CAMEO4"):
           self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Cameo4")
         rfcommFile = os.path.join(os.sep, "dev", rfcomms[0])
         print("Found device at port %s" % rfcommFile, file=log)
     else:   # linux
-      print("Bluetooth device lookup under linux not yet implemented. Help adding code!", file=log)
+      print("Searching for bt devices on Linux", file=log)
+
+      pat = re.compile("tty\.(PORTRAIT2|CAMEO3|CAMEO4)-?.*")
+      # get first matching port
+      rfcomms = [f for f in os.listdir("/dev/") if pat.match(f)]
+      rfcomm = rfcomms[0] if rfcomms else None
+
+      if rfcomm is not None:
+        # figure out hardware
+        devName = pat.match(rfcomm).group(1)
+        if (devName == "PORTRAIT2"):
+          self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Portrait2")
+        elif (devName == "CAMEO3"):
+          self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Cameo3")
+        elif (devName == "CAMEO4"):
+          self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Cameo4")
+        rfcommFile = os.path.join(os.sep, "dev", rfcomms[0])
+        print("Found device at port %s" % rfcommFile, file=log)
 
     if rfcommFile is None:
      raise ValueError('No Graphtec Silhouette bluetooth devices found.\nCheck Bluetooth and Power.')
