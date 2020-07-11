@@ -1,0 +1,10 @@
+# Rule to automatically create a symbolic link when a silhouette device is connected
+
+# Uncomment the correct lines for your devices and change the MAC-id
+# If you want to specify more the one device of the same modell you can duplicate the line
+# and extend the symlink by a dash followed by an arbitrary alphanumeric chacter sequence
+# e.g. tty.CAMEO3-xyz
+
+#KERNEL=="rfcomm?", ATTR{address}=="00:11:22:33:44:55", MODE="0666", SYMLINK+="tty.CAMEO3"
+#KERNEL=="rfcomm?", ATTR{address}=="00:11:22:33:44:55", MODE="0666", SYMLINK+="tty.CAMEO4"
+#KERNEL=="rfcomm?", ATTR{address}=="00:11:22:33:44:55", MODE="0666", SYMLINK+="tty.PORTRAIT2"

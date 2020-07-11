@@ -430,6 +430,10 @@ class BTConnection(AbstractConnection):
           self.hardware = next(item for item in DEVICE if item["name"] == "Silhouette Cameo4")
         rfcommFile = os.path.join(os.sep, "dev", rfcomms[0])
         print("Found device at port %s" % rfcommFile, file=log)
+      else:
+        print("Unable to find a rfcomm file for your machine. Have you copied the udev rule to "
+              "/etc/udev/rules.d and adopted its content to your device(s)?",
+              file=log)
 
     if rfcommFile is None:
      raise ValueError('No Graphtec Silhouette bluetooth devices found.\nCheck Bluetooth and Power.')
