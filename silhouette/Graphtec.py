@@ -395,7 +395,7 @@ class BTConnection(AbstractConnection):
       print("Searching for bt devices on OSX", file=log)
       # on osx a rfcomm port is created and linked automatically when the cameo is connected
       # TODO add support for other machines. I would expect files like CAMEO3-... and PORTRAIT2-...
-      pat = re.compile("tty\.(PORTRAIT2|CAMEO3|CAMEO4)-.*")
+      pat = re.compile("tty.(PORTRAIT2|CAMEO3|CAMEO4)-.*")
       # get first matching port
       rfcomms = [f for f in os.listdir("/dev/") if pat.match(f)]
       rfcomm = rfcomms[0] if rfcomms else None
@@ -414,7 +414,7 @@ class BTConnection(AbstractConnection):
     else:   # linux
       print("Searching for bt devices on Linux", file=log)
 
-      pat = re.compile("tty\.(PORTRAIT2|CAMEO3|CAMEO4)-?.*")
+      pat = re.compile("tty.(PORTRAIT2|CAMEO3|CAMEO4)-?.*")
       # get first matching port
       rfcomms = [f for f in os.listdir("/dev/") if pat.match(f)]
       rfcomm = rfcomms[0] if rfcomms else None
@@ -1125,7 +1125,7 @@ class SilhouetteCameo:
     return "D%d,%d" % (_mm_2_SU(mmy), _mm_2_SU(mmx))
 
   def upper_left_mm_cmd(self, mmy, mmx):
-    """ \y,x """
+    r""" \y,x """
     return "\\%d,%d" % (_mm_2_SU(mmy), _mm_2_SU(mmx))
 
   def lower_right_mm_cmd(self, mmy, mmx):
