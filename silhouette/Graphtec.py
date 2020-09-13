@@ -1398,7 +1398,8 @@ class SilhouetteCameo:
         self.draw_mm_cmd(bbox['ury'], bbox['llx'])]
 
     # potentially long command string needs extra care
-    self.safe_send_command(cmd_list)
+    if cmd_list:
+        self.safe_send_command(cmd_list)
 
     self.wait_for_ready()
 
