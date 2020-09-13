@@ -633,12 +633,12 @@ class SendtoSilhouette(inkex.Effect):
                                         if t:
                                                 newpath.set( 'transform', t )
                                         a = []
-                                        a.append( ['M ', [x, y]] )
-                                        a.append( [' l ', [w, 0]] )
-                                        a.append( [' l ', [0, h]] )
-                                        a.append( [' l ', [-w, 0]] )
-                                        a.append( [' Z', []] )
-                                        newpath.set( 'd', simplepath.formatPath( a ) )
+                                        a.append( ['M', [x, y]] )
+                                        a.append( ['l', [w, 0]] )
+                                        a.append( ['l', [0, h]] )
+                                        a.append( ['l', [-w, 0]] )
+                                        a.append( ['Z', []] )
+                                        newpath.set( 'd', str(Path(a)) )
                                         self.plotPath( newpath, transform )
 
                         elif node.tag == inkex.addNS( 'line', 'svg' ) or node.tag == 'line':
@@ -676,9 +676,9 @@ class SendtoSilhouette(inkex.Effect):
                                         if t:
                                                 newpath.set( 'transform', t )
                                         a = []
-                                        a.append( ['M ', [x1, y1]] )
-                                        a.append( [' L ', [x2, y2]] )
-                                        newpath.set( 'd', simplepath.formatPath( a ) )
+                                        a.append( ['M', [x1, y1]] )
+                                        a.append( ['L', [x2, y2]] )
+                                        newpath.set( 'd', str(Path(a)) )
                                         self.plotPath( newpath, transform )
                                         if ( not self.bStopped ):       #an "index" for resuming plots quickly-- record last complete path
                                                 self.svgLastPath += 1
