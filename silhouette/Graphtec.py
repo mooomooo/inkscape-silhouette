@@ -674,7 +674,7 @@ class SilhouetteCameo:
     elif isinstance(data, bytearray):
         return str(data).decode()
     else:
-        return data.tostring().decode()
+        return data.tobytes().decode()  # return data.tostring().decode()
 
   def try_read(self, size=64, timeout=1000):
     ret=None
